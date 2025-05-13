@@ -294,6 +294,8 @@ class RealestateSpider(RedisSpider):
                     floorplan_src = floorplan_img.get_attribute("src")
                     logger.info(f"Floorplan 图片链接: {floorplan_src}")
 
+                    # 这里要特殊处理一下：如果floorplan在orgin_images中则不需要插入了
+
                     item['origin_images'].append(floorplan_src)
                     item['image_meta'][floorplan_src] = 'floorplan'  # 户型图
 

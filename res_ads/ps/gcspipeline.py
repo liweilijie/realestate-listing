@@ -110,7 +110,27 @@ class GCSMediaPipeline(ImagesPipeline):
         item["images"] = images_info
         item["floor_plan"] = floor_plans_info
 
-        item["images"].append(item["floor_plan"])
+        # 将 'floor_plan' 中的链接添加到 'images' 的末尾，避免重复
+        for url in item["floor_plan"]:
+            if url not in item["images"]:
+                item["images"].append(url)
+
+        # 我需要将floor_plan的url移动到最后
+        floor_plan_set = set(item.get("floor_plan", []))  # 使用 set 提高查找效率
+
+        # 分离 images 中的元素
+        non_floorplan_images = []
+        floorplan_images = []
+
+        for img_url in item.get("images", []):
+            if img_url in floor_plan_set:
+                floorplan_images.append(img_url)
+            else:
+                non_floorplan_images.append(img_url)
+
+        # 合并列表：非 floorplan 图片在前，floorplan 图片在后
+        item["images"] = non_floorplan_images + floorplan_images
+        logger.info("images:%s", item["images"])
 
         # 处理 PDF
         origin_pdfs = item.get("origin_pdfs", [])
