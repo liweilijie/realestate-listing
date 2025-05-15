@@ -3,7 +3,7 @@ import json
 
 k = "realestate_spider:testurls"
 # url = "https://www.realestate.com.au/property-house-vic-tarneit-148005336"
-url = "https://www.realestate.com.au/property-house-qld-park+ridge-148005508"
+url = "https://www.realestate.com.au/property-house-sa-aberfoyle+park-148000976"
 data = {"url":url, "meta":{}}
 r = get_redis_client()
 r.lpush(k, json.dumps(data))

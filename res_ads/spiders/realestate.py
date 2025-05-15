@@ -223,6 +223,7 @@ class RealestateSpider(RedisSpider):
 
             # 初始化集合用于存储图片链接
             image_src_set = set()
+            floorplan_src = None
 
             while True:
                 # 记录当前集合大小
@@ -233,9 +234,14 @@ class RealestateSpider(RedisSpider):
                 img_elements = self.manager.driver.find_elements(By.XPATH, '//img[contains(@class, "pswp__img")]')
                 for img in img_elements:
                     src = img.get_attribute("src")
-                    if src:
+                    if src and src not in image_src_set:
                         logger.info("gallery add src: %s", src)
                         image_src_set.add(src)
+
+                        # 如果超过了 total_images，说明这一张是 floorplan
+                        if total_images is not None and len(image_src_set) > total_images:
+                            floorplan_src = src
+                            logger.info("Detected floorplan src: %s", floorplan_src)
 
                 # 点击“下一张”按钮
                 try:
@@ -260,6 +266,7 @@ class RealestateSpider(RedisSpider):
 
             # 输出所有收集到的图片链接
             logger.info("收集到的图片链接大小：%s", len(image_src_set))
+            logger.info("收集到的floorplan图片链接：%s", floorplan_src)
             for src in image_src_set:
                 logger.info(src)
 
@@ -288,16 +295,32 @@ class RealestateSpider(RedisSpider):
                 try:
                     # 等待图片元素加载完成
                     wait = WebDriverWait(self.manager.driver, 10)
-                    floorplan_img = wait.until(EC.presence_of_element_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
+                    # img_elements = wait.until(EC.presence_of_element_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
+                    img_elements_a = wait.until(EC.presence_of_all_elements_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
 
-                    # 获取图片的 src 属性
-                    floorplan_src = floorplan_img.get_attribute("src")
-                    logger.info(f"Floorplan 图片链接: {floorplan_src}")
+                    # 提取 A 列表中每个图片元素的 src 属性，确保不为 None
+                    src_list_a = []
+                    for img in img_elements_a:
+                        src = img.get_attribute("src")
+                        if src:
+                            src_list_a.append(src)
 
-                    # 这里要特殊处理一下：如果floorplan在orgin_images中则不需要插入了
+                    # Step 2: 判断初始图片数量
+                    if len(src_list_a) == 1:
+                        # 只有一张图片，直接视为 floorplan
+                        floorplan_src = src_list_a[0]
+                    elif floorplan_src is not None and floorplan_src in src_list_a:
+                        logger.info("loorplan_src have found by origin_images:%s", floorplan_src)
+                    else:
+                        floorplan_src = None
+                        logger.info("loorplan_src have not found by origin_images:%s", floorplan_src)
 
-                    item['origin_images'].append(floorplan_src)
-                    item['image_meta'][floorplan_src] = 'floorplan'  # 户型图
+                    # Step 7: 将 floorplan 图片添加到 item 中
+                    if floorplan_src:
+                        logger.info("floorplan_src: %s", floorplan_src)
+                        item['image_meta'][floorplan_src] = 'floorplan'
+                        if floorplan_src not in item['origin_images']:
+                            item['origin_images'].append(floorplan_src)
 
                 except Exception as e:
                     logger.error(f"获取Floorplan图片链接时发生错误: {e}")
@@ -305,46 +328,7 @@ class RealestateSpider(RedisSpider):
             except Exception as e:
                 logger.error(f"点击Floorplan按钮时发生错误: {e}")
 
-
-
-            # try:
-            #     next_btn = WebDriverWait(self.manager.driver, 30).until(
-            #         EC.element_to_be_clickable(
-            #             (By.XPATH, '//div[@data-testid="hero-thumbnails"]/div[@role="button"][last()]'))
-            #     )
-            #     self.manager.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", next_btn)
-            #     ActionChains(self.manager.driver).move_to_element(next_btn).click().perform()
-            #     time.sleep(1)
-            #     self.manager.driver.execute_script(self.js)
-            #
-            #     imgs = self.manager.driver.find_elements(By.XPATH, "//img")
-            #     for img in imgs:
-            #         self.manager.driver.execute_script("arguments[0].scrollIntoView(true);", img)
-            #         time.sleep(0.4)
-            # except Exception as e:
-            #     logger.error("发生了错误：%s", e)
-            #     raise ValueError("发生了错误:%s", e)
-            #
-            # src = self.manager.driver.page_source
-            #
-            # with open("p3.html", "w", encoding="utf-8") as f:
-            #     f.write(src)
-            #
-            # sel = Selector(text=src)
-            #
-            # try:
-            #     item = self.parse_property_images(sel, item)
-            # except ValueError as e:
-            #     logger.error("parse images error:%s", e)
-            #     raise ValueError("parse images error:%s", e)
-
-            # item["image_urls"] = item["origin_images"]
             item = self.order_images(item)
-
-            # process data
-            # setdefault() 方法会在指定键不存在时，将其设置为给定的默认值。
-            # for key, value in data.items():
-            #     item.setdefault(key, value)
 
             logger.info(item)
 
