@@ -184,6 +184,7 @@ class RealestateSpider(RedisSpider):
             logger.info(item)
 
             if not item.get('unique_id') or ListingHelper.exists_by_unique_id(item.get('unique_id')):
+                logger.warning('unique_id %s or unique_id exists', item.get('unique_id'))
                 raise ValueError('unique_id error or unique_id exists')
 
             # 使用 XPath 选择最后一个具有 role="button" 的子 div
@@ -221,9 +222,16 @@ class RealestateSpider(RedisSpider):
             wait = WebDriverWait(self.manager.driver, 10)
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "pswp__img")))
 
+            # 将首图放在首位
+            if first_srcset:
+                item["origin_images"].append(first_srcset)
+                item['image_meta'][first_srcset] = 'property'  # 房屋展示图
+
             # 初始化集合用于存储图片链接
             image_src_set = set()
-            floorplan_src = None
+            # image_src_set.add(first_img_src)
+            # floorplan_src = None
+            # last_append_src = None
 
             while True:
                 # 记录当前集合大小
@@ -236,12 +244,14 @@ class RealestateSpider(RedisSpider):
                     src = img.get_attribute("src")
                     if src and src not in image_src_set:
                         logger.info("gallery add src: %s", src)
+                        # last_append_src = src
                         image_src_set.add(src)
 
-                        # 如果超过了 total_images，说明这一张是 floorplan
-                        if total_images is not None and len(image_src_set) > total_images:
-                            floorplan_src = src
-                            logger.info("Detected floorplan src: %s", floorplan_src)
+
+                        # # 如果超过了 total_images，说明这一张是 floorplan
+                        # if total_images is not None and len(image_src_set) > total_images:
+                        #     floorplan_src = src
+                        #     logger.info("Detected floorplan src: %s", floorplan_src)
 
                 # 点击“下一张”按钮
                 try:
@@ -266,7 +276,11 @@ class RealestateSpider(RedisSpider):
 
             # 输出所有收集到的图片链接
             logger.info("收集到的图片链接大小：%s", len(image_src_set))
-            logger.info("收集到的floorplan图片链接：%s", floorplan_src)
+
+            # if floorplan_src is not None and floorplan_src != last_append_src:
+            #     floorplan_src = last_append_src
+
+            # logger.info("收集到的floorplan图片链接：%s", floorplan_src)
             for src in image_src_set:
                 logger.info(src)
 
@@ -275,58 +289,59 @@ class RealestateSpider(RedisSpider):
                 raise ValueError("cannot load all images. %s > %s" % (total_images, len(image_src_set)))
 
             for src in image_src_set:
-                item['origin_images'].append(src)
-                item['image_meta'][src] = 'property'  # 房屋展示图
+                if src not in item['origin_images']: # 如果有首图了，则不追加到数组里面，这样的话就能pin住首图
+                    item['origin_images'].append(src)
+                    item['image_meta'][src] = 'property'  # 房屋展示图
 
 
-            # Floorplan
-            try:
-                # 等待“Floorplan”按钮可点击
-                wait = WebDriverWait(self.manager.driver, 10)
-                floorplan_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@title='Floorplan']")))
-
-                self.manager.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", floorplan_button)
-                # 点击“Floorplan”按钮
-                ActionChains(self.manager.driver).move_to_element(floorplan_button).click().perform()
-
-                # floorplan_button.click()
-                logger.info("成功点击了 'Floorplan' 按钮。")
-
-                try:
-                    # 等待图片元素加载完成
-                    wait = WebDriverWait(self.manager.driver, 10)
-                    # img_elements = wait.until(EC.presence_of_element_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
-                    img_elements_a = wait.until(EC.presence_of_all_elements_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
-
-                    # 提取 A 列表中每个图片元素的 src 属性，确保不为 None
-                    src_list_a = []
-                    for img in img_elements_a:
-                        src = img.get_attribute("src")
-                        if src:
-                            src_list_a.append(src)
-
-                    # Step 2: 判断初始图片数量
-                    if len(src_list_a) == 1:
-                        # 只有一张图片，直接视为 floorplan
-                        floorplan_src = src_list_a[0]
-                    elif floorplan_src is not None and floorplan_src in src_list_a:
-                        logger.info("loorplan_src have found by origin_images:%s", floorplan_src)
-                    else:
-                        floorplan_src = None
-                        logger.info("loorplan_src have not found by origin_images:%s", floorplan_src)
-
-                    # Step 7: 将 floorplan 图片添加到 item 中
-                    if floorplan_src:
-                        logger.info("floorplan_src: %s", floorplan_src)
-                        item['image_meta'][floorplan_src] = 'floorplan'
-                        if floorplan_src not in item['origin_images']:
-                            item['origin_images'].append(floorplan_src)
-
-                except Exception as e:
-                    logger.error(f"获取Floorplan图片链接时发生错误: {e}")
-
-            except Exception as e:
-                logger.error(f"点击Floorplan按钮时发生错误: {e}")
+            # # Floorplan TODO: 这个功能暂时不要，比较难实现
+            # try:
+            #     # 等待“Floorplan”按钮可点击
+            #     wait = WebDriverWait(self.manager.driver, 10)
+            #     floorplan_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@title='Floorplan']")))
+            #
+            #     self.manager.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", floorplan_button)
+            #     # 点击“Floorplan”按钮
+            #     ActionChains(self.manager.driver).move_to_element(floorplan_button).click().perform()
+            #
+            #     # floorplan_button.click()
+            #     logger.info("成功点击了 'Floorplan' 按钮。")
+            #
+            #     try:
+            #         # 等待图片元素加载完成
+            #         wait = WebDriverWait(self.manager.driver, 10)
+            #         # img_elements = wait.until(EC.presence_of_element_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
+            #         img_elements_a = wait.until(EC.presence_of_all_elements_located((By.XPATH, '//img[contains(@class, "pswp__img")]')))
+            #
+            #         # 提取 A 列表中每个图片元素的 src 属性，确保不为 None
+            #         src_list_a = []
+            #         for img in img_elements_a:
+            #             src = img.get_attribute("src")
+            #             if src:
+            #                 src_list_a.append(src)
+            #
+            #         # Step 2: 判断初始图片数量
+            #         if len(src_list_a) == 1:
+            #             # 只有一张图片，直接视为 floorplan
+            #             floorplan_src = src_list_a[0]
+            #         elif floorplan_src is not None and floorplan_src in src_list_a:
+            #             logger.info("loorplan_src have found by origin_images:%s", floorplan_src)
+            #         else:
+            #             floorplan_src = None
+            #             logger.info("loorplan_src have not found by origin_images:%s", floorplan_src)
+            #
+            #         # Step 7: 将 floorplan 图片添加到 item 中
+            #         if floorplan_src:
+            #             logger.info("floorplan_src: %s", floorplan_src)
+            #             item['image_meta'][floorplan_src] = 'floorplan'
+            #             if floorplan_src not in item['origin_images']:
+            #                 item['origin_images'].append(floorplan_src)
+            #
+            #     except Exception as e:
+            #         logger.error(f"获取Floorplan图片链接时发生错误: {e}")
+            #
+            # except Exception as e:
+            #     logger.error(f"点击Floorplan按钮时发生错误: {e}")
 
             item = self.order_images(item)
 
