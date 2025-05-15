@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # execute(['scrapy', 'crawl', 'realestate'])
     # 构造参数字典
     data_dict = {
-        "user": "ky40g71"
+        "user": "ky3dx5b"
     }
 
     # 将参数字典转换为 JSON 字符串

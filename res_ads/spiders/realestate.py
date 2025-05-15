@@ -160,6 +160,11 @@ class RealestateSpider(RedisSpider):
             item['origin_images'] = []
             item['image_meta'] = {}
 
+            # 检查页面中是否包含特定的文本
+            if sel.xpath('//div[@data-testid="error-404"]//h1[contains(text(), "Looks like this page is off the market")]'):
+                logger.info(f"跳过页面：{url}，因为包含指定的文本。")
+                return None  # 跳过该页面的处理
+
             # address info
             item = self.parse_address(sel, item)
 
