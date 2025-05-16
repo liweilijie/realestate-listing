@@ -73,8 +73,22 @@ class AdsPowerDriverManager:
         close_url = f"{self.api_host}/api/v1/browser/stop?user_id={self.user_id}&api_key={self.api_key}"
         try:
             if self.driver:
-                self.driver.quit()
-                self.driver = None
+                try:
+                    # 尝试逐一关闭所有窗口
+                    for handle in self.driver.window_handles:
+                        self.driver.switch_to.window(handle)
+                        self.driver.close()
+                except Exception as e:
+                    logger.warning(f"关闭窗口时发生异常：{e}")
+                finally:
+                    try:
+                        # 尝试关闭 WebDriver 会话
+                        self.driver.quit()
+                    except Exception as e:
+                        logger.warning(f"关闭 WebDriver 会话时发生异常：{e}")
+                    finally:
+                        self.driver = None
+
             resp = requests.get(close_url).json()
             if resp.get("code") != 0:
                 logger.error(f"关闭浏览器失败，user_id: {self.user_id}, 错误信息: {resp.get('msg')}")

@@ -68,7 +68,10 @@ class RealestateSpider(RedisSpider):
             raise ValueError("ads user_ids is None")
 
         self.manager = AdsPowerDriverManager(user_id=self.user, api_key=settings.get('ADS_API_KEY',''))
+        self.manager.stop_browser()
         self.manager.start_browser()
+        self.failure_count = 0
+        self.max_retries = 3
 
 
     def __del__(self):
@@ -128,7 +131,8 @@ class RealestateSpider(RedisSpider):
             # 检查 WebDriver 是否有效
             if self.manager.is_driver_valid():
                 # 进行你的操作，例如打开页面
-                self.manager.driver.get(url)
+                # self.manager.driver.get(url)
+                self.safe_get(self.manager.driver, url)
             else:
                 logger.warning("WebDriver 无效，尝试重新启动浏览器。")
                 self.manager.restart_browser()
@@ -136,7 +140,7 @@ class RealestateSpider(RedisSpider):
 
             # logger.debug("parse_listing user_id:%s, url:%s, data:%s", user_id, url, data)
 
-            self.safe_get(self.manager.driver, url)
+            # self.safe_get(self.manager.driver, url)
             # # 页面解析逻辑
             # WebDriverWait(driver, 10).until(
             #     EC.presence_of_element_located(
@@ -361,6 +365,7 @@ class RealestateSpider(RedisSpider):
             success = True
             yield item
         except Exception as e:
+            self.failure_count += 1
             self.logger.warning(f"return {response.url} to redis because [解析失败] {response.url}, 原因: {e}")
             self.r.rpush(self.retry_redis_key, json.dumps({"url": url, "meta": {}}))
 
@@ -376,7 +381,12 @@ class RealestateSpider(RedisSpider):
         finally:
             # self.driver_pool.release_driver(user_id, driver)
             if success:
+                self.failure_count = 0
                 logger.info('%s success processed.', url)
+            elif self.failure_count > self.max_retries:
+                logger.error("failure count(%s) exceeds max retries(%s).", self.failure_count, self.max_retries)
+                self.manager.stop_browser()
+                sys.exit(1)
 
         return None
 
@@ -388,16 +398,37 @@ class RealestateSpider(RedisSpider):
             ValueError: 如果无法提取 property ID 或 property type。
         """
 
+        # 定义 property_type 映射关系
+        property_type_mapping = {
+            'acreage+semi-rural': 'rural',
+            'residential+land': 'land',
+            'house': 'house',
+            'apartment': 'apartment',
+            'townhouse': 'townhouse',
+            'other': 'other',
+            'unit':'unit',
+            'cropping': 'cropping',
+            'villa': 'villa',
+            'studio': 'studio',
+            'duplex+semi-detached': 'house',
+            'mixed+farming': 'farming',
+            'retirement+living': 'living',
+            # 添加更多映射关系
+        }
+
         # 尝试从 URL 中提取
-        url_pattern = re.compile(r'/property-([a-zA-Z]+)-[a-zA-Z]+-[\w\+]+-(\d+)')
+        url_pattern = re.compile(r'/property-([\w\+\-]+)-[\w\+\-]+-[\w\+\-]+-(\d+)')
         match = url_pattern.search(url)
         if match:
-            item['property_type'] = match.group(1).lower()
+            raw_property_type = match.group(1).lower()
+            item['property_type'] = property_type_mapping.get(raw_property_type, 'other')
             item['unique_id'] = match.group(2)
             return item
 
         # 提取 Property ID
         id_elements = sel.xpath('//p[contains(text(), "Property ID")]/text()')
+        if not id_elements:
+            id_elements = sel.xpath('//li[contains(text(), "Property ID")]/text()')
         if id_elements:
             id_text = ''.join(id_elements)
             id_match = re.search(r'Property ID:\s*(\d+)', id_text)
@@ -406,14 +437,55 @@ class RealestateSpider(RedisSpider):
             else:
                 raise ValueError("无法从 HTML 中提取 property ID。")
         else:
-            raise ValueError("HTML 中未找到包含 'Property ID' 的段落。")
+            raise ValueError("HTML 中未找到包含 'Property ID' 的元素。")
 
         # 提取 property_type
-        property_type_text = sel.xpath("//ul[contains(@class, 'property-info__primary-features')]//p[last()]/text()").get()
+        property_type_text = sel.xpath(
+            "//ul[contains(@class, 'property-info__primary-features')]//p[last()]/text()").get()
+        if not property_type_text:
+            property_type_text = sel.xpath("//div[contains(@class, 'property-type')]/text()").get()
         if property_type_text:
-            item['property_type'] = property_type_text.strip().lower()
+            raw_property_type = property_type_text.strip().lower()
+            item['property_type'] = property_type_mapping.get(raw_property_type, 'house')
+        else:
+            item['property_type'] = 'house'  # 默认值
 
         return item
+
+    # def parse_property_id_type(self, url: str, sel: Selector, item: CombinedRealEstateItem) -> CombinedRealEstateItem:
+    #     """
+    #     从 URL 或 HTML 内容中提取 property ID 和 property type。
+    #
+    #     异常:
+    #         ValueError: 如果无法提取 property ID 或 property type。
+    #     """
+    #
+    #     # 尝试从 URL 中提取
+    #     url_pattern = re.compile(r'/property-([a-zA-Z]+)-[a-zA-Z]+-[\w\+]+-(\d+)')
+    #     match = url_pattern.search(url)
+    #     if match:
+    #         item['property_type'] = match.group(1).lower()
+    #         item['unique_id'] = match.group(2)
+    #         return item
+    #
+    #     # 提取 Property ID
+    #     id_elements = sel.xpath('//p[contains(text(), "Property ID")]/text()')
+    #     if id_elements:
+    #         id_text = ''.join(id_elements)
+    #         id_match = re.search(r'Property ID:\s*(\d+)', id_text)
+    #         if id_match:
+    #             item['unique_id'] = id_match.group(1)
+    #         else:
+    #             raise ValueError("无法从 HTML 中提取 property ID。")
+    #     else:
+    #         raise ValueError("HTML 中未找到包含 'Property ID' 的段落。")
+    #
+    #     # 提取 property_type
+    #     property_type_text = sel.xpath("//ul[contains(@class, 'property-info__primary-features')]//p[last()]/text()").get()
+    #     if property_type_text:
+    #         item['property_type'] = property_type_text.strip().lower()
+    #
+    #     return item
 
     def parse_price(self, sel: Selector, item: CombinedRealEstateItem) -> CombinedRealEstateItem:
         """
@@ -759,44 +831,6 @@ class RealestateSpider(RedisSpider):
         如果 path 是相对路径，则拼接上 BASE_DOMAIN；否则直接返回绝对 URL。
         """
         return urljoin(self.BASE_DOMAIN, path)
-
-    # —— 2. 在类中定义 parse_property_url 方法 —— #
-    def parse_property_url(self, path: str) -> dict:
-        """
-        从单一路径（如 "/property-house-wa-dunsborough-147818112"）中提取：
-          - property_type: 房屋类型
-          - state: 州简称
-          - region: 地区
-          - id: 房屋 ID
-        """
-        clean = path.lstrip('/')
-        pattern = re.compile(r'^property-([^-]+)-([^-]+)-([^-]+)-(\d+)$')
-        m = pattern.match(clean)
-        if not m:
-            raise ValueError(f"无法解析路径: {path}")
-        prop_type, state, region, prop_id = m.groups()
-        return {
-            "property_type": prop_type,
-            "state": state,
-            "region": region,
-            "id": prop_id,
-        }
-
-    def extract_property_id(self, url):
-        """
-        判断给定的 URL 是否为 realestate.com.au 的房产详情页，并提取房产 ID。
-
-        参数:
-            url (str): 要检查的 URL。
-
-        返回:
-            str 或 None: 如果是房产详情页，返回房产 ID；否则返回 None。
-        """
-        pattern = r'^https?://(?:www\.)?realestate\.com\.au/property-[\w-]+-(\d+)$'
-        match = re.match(pattern, url)
-        if match:
-            return match.group(1)
-        return None
 
     def ensure_connection(self):
         try:

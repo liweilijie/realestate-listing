@@ -35,6 +35,7 @@ if __name__ == "__main__":
     # execute(['scrapy', 'crawl', 'realestate'])
     # 构造参数字典
     data_dict = {
+        # "user": "ky4t1of" # for test
         "user": "kxvj5v1"
     }
 
