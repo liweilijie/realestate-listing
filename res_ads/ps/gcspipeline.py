@@ -66,9 +66,9 @@ class GCSMediaPipeline(ImagesPipeline):
             filename = f"{unique_id}-{image_type}-{image_index}.jpg"
             # if agent: ~~~/jiwu/realestate/agents/md5(url+salt).jpg
             if image_type == "agent":
-                blob_path = os.path.join('jiwu', 'realestate', 'agents', hashlib.md5((image_url + PS_SALT).encode('utf-8')).hexdigest())
+                blob_path = os.path.join('jiwu', 'realestate', 'agents', hashlib.md5((image_url + PS_SALT).encode('utf-8')).hexdigest()+'.jpg')
             elif image_type == "agency":
-                blob_path = os.path.join('jiwu', 'realestate', 'agencies', hashlib.md5((image_url + PS_SALT).encode('utf-8')).hexdigest())
+                blob_path = os.path.join('jiwu', 'realestate', 'agencies', hashlib.md5((image_url + PS_SALT).encode('utf-8')).hexdigest()+'.jpg')
             else:
                 blob_path = os.path.join('jiwu', 'realestate', unique_id, filename)
 
